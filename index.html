@@ -447,8 +447,30 @@ S.meta ||= {t:{},lastSync:0,pending:[]}; S.meta.t ||= {};
 const pending = new Set(S.meta.pending || []);
 let VER = 0;
 let localTimer;
-function saveLocal(){ S.meta.pending = [...pending]; try{ localStorage.setItem(LS, JSON.stringify(S)); }catch(e){} }
+/* contrôle de l'enregistrement : on relit ce qu'on vient d'écrire */
+let SAVED_AT = 0, PERSIST = null;
+function storeCheck(){ try{ localStorage.setItem("pv-test", "1"); const ok = localStorage.getItem("pv-test") === "1"; localStorage.removeItem("pv-test"); return ok; }catch(e){ return false; } }
+let STORE = storeCheck() ? "ok" : "blocked";
+function saveLocal(){
+  S.meta.pending = [...pending];
+  try{ const j = JSON.stringify(S); localStorage.setItem(LS, j); if(localStorage.getItem(LS) !== j) throw 0; SAVED_AT = Date.now(); if(STORE !== "ok"){ STORE = "ok"; setTimeout(render); } }
+  catch(e){ if(STORE !== "blocked"){ STORE = "blocked"; setTimeout(render); } }
+  paintSaved();
+}
 function saveLocalSoon(){ clearTimeout(localTimer); localTimer = setTimeout(saveLocal, 350); }
+function savedLabel(){
+  if(STORE === "blocked") return `<span class="red">Non enregistré</span>`;
+  if(!SAVED_AT) return "Enregistré sur ce téléphone";
+  const d = new Date(SAVED_AT); return `Enregistré ✓ ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function paintSaved(){ const el = document.getElementById("savedAt"); if(el) el.innerHTML = savedLabel(); }
+function storageBanner(){
+  if(STORE !== "blocked") return "";
+  return `<section class="sec"><div class="card accent stack" style="gap:8px"><span class="lbl red">Attention</span>
+    <p style="margin:0"><b style="color:var(--navy)">Ton téléphone empêche l'appli d'enregistrer.</b> Ce que tu saisis sera perdu à la fermeture.</p>
+    <p class="small" style="margin:0">Pour corriger : ouvre Chrome, menu ⋮, <b>Paramètres</b>, <b>Paramètres des sites</b>, <b>Données de site sur l'appareil</b>, puis autorise les sites à enregistrer des données. Vérifie aussi que tu n'es pas en navigation privée.</p>
+    <div><button class="btn sm ghost" data-a="recheck">Revérifier</button></div></div></section>`;
+}
 
 function touch(units){
   const now = Date.now();
@@ -711,7 +733,7 @@ function render(){
   const V = VIEWS[R.view] || VIEWS.home;
   const app = $("#app");
   app.className = R.view === "onboard" ? "full" : "";
-  app.innerHTML = V();
+  app.innerHTML = storageBanner() + V();
   const nav = $("#nav");
   nav.hidden = R.view === "onboard";
   if(!nav.hidden){
@@ -820,7 +842,7 @@ VIEWS.home = () => {
   const pubWeek = S.videos.filter(v => v.status === "publie" && v.date && v.date >= key(ws) && v.date <= we).length;
   const goal = S.profile.weeklyGoal || 3;
   const L = D.level;
-  return `<div class="topbar"><span class="mark">PV</span><button class="pill out" data-a="tab" data-v="profile">${LEVELS[cecr(L)]} · Niveau ${L}</button></div>
+  return `<div class="topbar"><span class="mark">PV</span><span id="savedAt" class="small muted" style="margin-right:auto">${savedLabel()}</span><button class="pill out" data-a="tab" data-v="profile">${LEVELS[cecr(L)]} · Niveau ${L}</button></div>
   ${header(`${JOURS[d.getDay()]} ${d.getDate()} ${MOIS[d.getMonth()]}`, `Bonjour, <em class="red">${esc(S.profile.name || "Vinvin")}</em>`, "«")}
   <section class="sec"><div class="card">
     <div class="ringwrap">${ring(p)}<div style="flex:1;min-width:0"><span class="lbl">Rituels du jour</span><h2 style="margin-top:2px">${list.length ? (done === list.length ? "Journée <em>parfaite</em>" : `${done} sur ${list.length} cochés`) : "Aucun rituel prévu"}</h2>
@@ -1117,6 +1139,7 @@ VIEWS.profile = () => {
     <div class="field"><span class="lbl soft">Plateformes</span><div class="chips">${PLATFORMS.map(p => `<button class="chip ${(S.profile.platforms||[]).includes(p)?"on":""}" data-a="p-plat" data-v="${p}">${p}</button>`).join("")}</div></div>
   </div></section>
   <section class="sec"><span class="lbl">Mes données</span><div class="card stack">
+    <p class="small" style="margin:0;color:var(--navy)"><b>Enregistrement :</b> ${STORE === "blocked" ? `<span class="red">bloqué par le téléphone</span>` : `fonctionne${PERSIST === true ? ", stockage protégé" : PERSIST === false ? ", stockage non protégé" : ""}`} · ${savedLabel()}</p>
     <p class="small muted" style="margin:0">Tes données sont enregistrées sur ce téléphone. Dernier export : ${S.meta.lastExport ? fmtShort(S.meta.lastExport) : "jamais"}. Exporte une fois par semaine pour garder une sauvegarde.</p>
     ${INSTALL ? `<button class="btn sm" data-a="install">Installer l'appli</button>` : ""}
     <div class="btnrow"><button class="btn sm ghost" data-a="export">Exporter</button><button class="btn sm ghost" data-a="import">Importer</button></div>
@@ -1534,7 +1557,8 @@ let INSTALL = null;
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); INSTALL = e; if(["profile","onboard"].includes(R.view)) render(); });
 window.addEventListener("appinstalled", () => { INSTALL = null; toast("Appli installée"); render(); });
 if("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
-if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+if(navigator.storage && navigator.storage.persist) navigator.storage.persist().then(v => { PERSIST = v; if(R.view === "profile") render(); }).catch(() => {});
+A.recheck = () => { STORE = storeCheck() ? "ok" : "blocked"; if(STORE === "ok"){ saveLocal(); toast("L'enregistrement fonctionne"); } else toast("Toujours bloqué"); render(); };
 A.install = async () => { if(!INSTALL) return; INSTALL.prompt(); try{ await INSTALL.userChoice; }catch(e){} INSTALL = null; render(); };
 
 render();

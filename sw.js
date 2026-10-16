@@ -1,5 +1,5 @@
 // Planning Vinvin: fonctionne hors ligne. Change VERSION à chaque mise à jour.
-const VERSION = "pv-v1";
+const VERSION = "pv-v2";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
